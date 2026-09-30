@@ -1,0 +1,37 @@
+{% extends "base.html" %}
+{% block title %}My List — StreamFlix{% endblock %}
+
+{% block content %}
+<div class="page">
+    <span class="slate page-slate">// Watchlist Reel</span>
+    <h1 class="page-title">My List</h1>
+
+    {% if items %}
+    <div class="mylist-grid">
+        {% for item in items %}
+        <a href="{{ url_for('detail', content_id=item.content_id) }}" class="poster-card">
+            {% if item.poster_url %}
+                <img src="{{ item.poster_url }}" alt="{{ item.title }}">
+            {% else %}
+                <div class="poster-placeholder">{{ item.title[:2]|upper }}</div>
+            {% endif %}
+            <div class="poster-overlay visible">
+                <div class="poster-title">{{ item.title }}</div>
+                <div class="poster-meta">
+                    <span class="rating-badge">★ {{ item.avg_rating }}</span>
+                    <span>{{ item.release_year }}</span>
+                    <span class="type-badge">{{ item.type }}</span>
+                </div>
+            </div>
+        </a>
+        {% endfor %}
+    </div>
+    {% else %}
+    <div class="empty-state">
+        <div class="empty-icon">📋</div>
+        <h3>Your list is empty</h3>
+        <p>Browse titles and click "+ My List" to add them here.</p>
+    </div>
+    {% endif %}
+</div>
+{% endblock %}

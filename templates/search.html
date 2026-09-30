@@ -1,0 +1,47 @@
+{% extends "base.html" %}
+{% block title %}Search{% if query %} — "{{ query }}"{% endif %} — StreamFlix{% endblock %}
+
+{% block content %}
+<div class="page">
+    <span class="slate page-slate">// Query Log</span>
+    <h1 class="page-title">
+        {% if query %}
+            Search results for "{{ query }}"
+        {% else %}
+            Search
+        {% endif %}
+    </h1>
+
+    {% if query and results %}
+    <div class="search-grid">
+        {% for item in results %}
+        <a href="{{ url_for('detail', content_id=item.content_id) }}" class="poster-card">
+            {% if item.poster_url %}
+                <img src="{{ item.poster_url }}" alt="{{ item.title }}">
+            {% else %}
+                <div class="poster-placeholder">{{ item.title[:2]|upper }}</div>
+            {% endif %}
+            <div class="poster-overlay visible">
+                <div class="poster-title">{{ item.title }}</div>
+                <div class="poster-meta">
+                    <span class="rating-badge">★ {{ item.avg_rating }}</span>
+                    <span>{{ item.release_year }}</span>
+                    <span class="type-badge">{{ item.type }}</span>
+                </div>
+            </div>
+        </a>
+        {% endfor %}
+    </div>
+    {% elif query %}
+    <div class="search-empty">
+        <h3>No results found</h3>
+        <p>We couldn't find anything matching "{{ query }}". Try a different search term.</p>
+    </div>
+    {% else %}
+    <div class="search-empty">
+        <h3>Start Searching</h3>
+        <p>Use the search bar above to find movies and series.</p>
+    </div>
+    {% endif %}
+</div>
+{% endblock %}

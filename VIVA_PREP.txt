@@ -1,0 +1,264 @@
+================================================================================
+                    🎬 STREAMFLIX — COMPLETE DBMS VIVA PREPARATION GUIDE
+================================================================================
+Project: StreamFlix (Netflix-Inspired Movie & Series Management System)
+Tech Stack: Python 3.10+, Flask, MySQL 8.0 (InnoDB), HTML5/CSS3/JavaScript
+Database Name: streamflix
+Total Tables: 10 Tables
+================================================================================
+
+--------------------------------------------------------------------------------
+1. PROJECT OVERVIEW & ARCHITECTURE
+--------------------------------------------------------------------------------
+StreamFlix is a full-stack dark-themed web application designed for DBMS coursework. 
+It demonstrates core relational database principles including normalized schema design,
+primary/foreign key integrity, complex multi-table JOINs, aggregate queries, 
+subqueries, connection pooling, SQL injection prevention, and real-time query tracking.
+
+Architecture:
+  [ Browser Frontend ] <--- HTTP REST / HTML ---> [ Flask Backend (app.py) ]
+                                                         |
+                                             [ MySQL Connection Pool ]
+                                                         |
+                                             [ MySQL 8.0 Database ]
+
+
+--------------------------------------------------------------------------------
+2. DATABASE SCHEMA (10 TABLES)
+--------------------------------------------------------------------------------
+1. users
+   - user_id (INT, AUTO_INCREMENT, PRIMARY KEY)
+   - name (VARCHAR(100), NOT NULL)
+   - email (VARCHAR(255), NOT NULL, UNIQUE)
+   - password_hash (VARCHAR(256), NOT NULL)
+   - created_at (DATETIME, DEFAULT CURRENT_TIMESTAMP)
+
+2. genres
+   - genre_id (INT, AUTO_INCREMENT, PRIMARY KEY)
+   - genre_name (VARCHAR(50), NOT NULL, UNIQUE)
+
+3. content
+   - content_id (INT, AUTO_INCREMENT, PRIMARY KEY)
+   - title (VARCHAR(200), NOT NULL)
+   - description (TEXT)
+   - type (ENUM('movie','series'), NOT NULL)
+   - release_year (YEAR)
+   - duration_mins (INT) -- NULL for series
+   - total_seasons (INT) -- NULL for movies
+   - poster_url (VARCHAR(500))
+   - avg_rating (DECIMAL(3,1), DEFAULT 0.0)
+
+4. content_genres (Junction Table for M:N)
+   - content_id (INT, Foreign Key -> content.content_id ON DELETE CASCADE)
+   - genre_id (INT, Foreign Key -> genres.genre_id ON DELETE CASCADE)
+   - PRIMARY KEY (content_id, genre_id)
+
+5. episodes
+   - episode_id (INT, AUTO_INCREMENT, PRIMARY KEY)
+   - content_id (INT, Foreign Key -> content.content_id ON DELETE CASCADE)
+   - season_number (INT, NOT NULL)
+   - episode_number (INT, NOT NULL)
+   - title (VARCHAR(200), NOT NULL)
+   - duration_mins (INT)
+   - UNIQUE KEY uq_episode (content_id, season_number, episode_number)
+
+6. watch_history
+   - history_id (INT, AUTO_INCREMENT, PRIMARY KEY)
+   - user_id (INT, Foreign Key -> users.user_id ON DELETE CASCADE)
+   - content_id (INT, Foreign Key -> content.content_id ON DELETE CASCADE)
+   - episode_id (INT, Foreign Key -> episodes.episode_id ON DELETE SET NULL)
+   - progress_mins (INT, DEFAULT 0)
+   - last_watched (DATETIME, DEFAULT CURRENT_TIMESTAMP)
+
+7. my_list (User Watchlist Junction Table)
+   - user_id (INT, Foreign Key -> users.user_id ON DELETE CASCADE)
+   - content_id (INT, Foreign Key -> content.content_id ON DELETE CASCADE)
+   - added_at (DATETIME, DEFAULT CURRENT_TIMESTAMP)
+   - PRIMARY KEY (user_id, content_id)
+
+8. ratings
+   - user_id (INT, Foreign Key -> users.user_id ON DELETE CASCADE)
+   - content_id (INT, Foreign Key -> content.content_id ON DELETE CASCADE)
+   - score (TINYINT, CHECK score BETWEEN 1 AND 10)
+   - rated_at (DATETIME, DEFAULT CURRENT_TIMESTAMP)
+   - PRIMARY KEY (user_id, content_id)
+
+9. plans
+   - plan_id (INT, AUTO_INCREMENT, PRIMARY KEY)
+   - plan_name (VARCHAR(50), NOT NULL, UNIQUE)
+   - price (DECIMAL(6,2), NOT NULL)
+   - max_screens (INT, DEFAULT 1)
+
+10. subscriptions
+   - subscription_id (INT, AUTO_INCREMENT, PRIMARY KEY)
+   - user_id (INT, Foreign Key -> users.user_id ON DELETE CASCADE)
+   - plan_id (INT, Foreign Key -> plans.plan_id ON DELETE CASCADE)
+   - start_date (DATE, NOT NULL)
+   - end_date (DATE)
+   - is_active (BOOLEAN, DEFAULT TRUE)
+
+
+--------------------------------------------------------------------------------
+3. NORMALIZATION IN STREAMFLIX
+--------------------------------------------------------------------------------
+- 1NF (First Normal Form): All attributes hold atomic values. Multi-valued genres 
+  are NOT stored as comma-separated strings in `content`; instead, each association 
+  is stored in a separate row in `content_genres`.
+- 2NF (Second Normal Form): Satisfies 1NF and contains no partial dependencies. 
+  In junction tables with composite primary keys (`content_genres`, `my_list`, `ratings`), 
+  non-key attributes (like `added_at` or `score`) depend on the ENTIRE composite key.
+- 3NF (Third Normal Form): Satisfies 2NF and contains no transitive dependencies. 
+  Attributes depend ONLY on the primary key. For example, subscription prices are 
+  stored in `plans`, not duplicated inside `subscriptions`.
+
+
+--------------------------------------------------------------------------------
+4. KEY SQL QUERIES & CONCEPTS DEMONSTRATED
+--------------------------------------------------------------------------------
+
+A. Multi-Table JOIN (Home Page Genre Rows)
+   SELECT c.content_id, c.title, c.poster_url, c.type, c.avg_rating
+   FROM content c
+   JOIN content_genres cg ON cg.content_id = c.content_id
+   WHERE cg.genre_id = %s
+   ORDER BY c.avg_rating DESC;
+
+B. Aggregate Function + Subquery (Recomputing Movie Rating)
+   UPDATE content c
+   SET c.avg_rating = (
+       SELECT ROUND(AVG(r.score), 1)
+       FROM ratings r WHERE r.content_id = %s
+   )
+   WHERE c.content_id = %s;
+
+C. GROUP_CONCAT & String Aggregation (Detail Page Genre Tagging)
+   SELECT c.*, GROUP_CONCAT(g.genre_name ORDER BY g.genre_name SEPARATOR ' • ') AS genres
+   FROM content c
+   LEFT JOIN content_genres cg ON cg.content_id = c.content_id
+   LEFT JOIN genres g ON g.genre_id = cg.genre_id
+   WHERE c.content_id = %s
+   GROUP BY c.content_id;
+
+D. Subquery with COALESCE (Continue Watching Duration Calculation)
+   SELECT c.content_id, c.title, c.poster_url, wh.progress_mins,
+          COALESCE(c.duration_mins, (SELECT SUM(e.duration_mins) FROM episodes e WHERE e.content_id = c.content_id)) AS total_mins
+   FROM watch_history wh
+   JOIN content c ON c.content_id = wh.content_id
+   WHERE wh.user_id = %s
+   ORDER BY wh.last_watched DESC;
+
+E. Pattern Matching with Wildcards (Search Feature)
+   SELECT c.*, GROUP_CONCAT(g.genre_name SEPARATOR ', ') AS genres
+   FROM content c
+   LEFT JOIN content_genres cg ON cg.content_id = c.content_id
+   LEFT JOIN genres g ON g.genre_id = cg.genre_id
+   WHERE c.title LIKE %s
+   GROUP BY c.content_id;
+
+
+--------------------------------------------------------------------------------
+5. SECURITY & OPTIMIZATION BEST PRACTICES
+--------------------------------------------------------------------------------
+1. SQL Injection Prevention:
+   - All queries use parameterized placeholders (`%s`).
+   - User inputs are passed separately to `cur.execute(sql, params)`, forcing MySQL 
+     to treat user input strictly as literal values, never executable SQL code.
+
+2. Password Hashing:
+   - Passwords are never stored in plain text.
+   - Hashed using PBKDF2 with SHA256 via Werkzeug (`generate_password_hash`).
+
+3. Connection Pooling:
+   - Uses `mysql.connector.pooling.MySQLConnectionPool(pool_size=5)`.
+   - Reuses database connections across requests to reduce connection overhead 
+     and improve server throughput under heavy traffic.
+
+
+--------------------------------------------------------------------------------
+6. REAL-TIME DB INSPECTOR FEATURE
+--------------------------------------------------------------------------------
+- Intercepts all `query()` and `execute()` database calls in `app.py`.
+- Logs timestamp, SQL query text, parameters, execution duration (in milliseconds), 
+  and write/read category into an in-memory thread-safe buffer (`deque`).
+- Exposes REST API endpoints (`/api/db/live-queries`, `/api/db/table-data/<table_name>`, `/api/db/tables`).
+- Frontend renders a live side-by-side split screen showing executed queries and 
+  updating database table rows in real time as the user interacts with the app!
+
+
+--------------------------------------------------------------------------------
+7. TOP 15 VIVA QUESTIONS & ANSWERS
+--------------------------------------------------------------------------------
+
+Q1: What database engine did you use, and why?
+A1: We used MySQL 8.0 with the InnoDB storage engine because InnoDB supports ACID 
+    transactions, foreign key constraints, referential integrity, and row-level locking.
+
+Q2: How do you handle Many-to-Many relationships in your schema?
+A2: A Many-to-Many relationship (e.g., between `content` and `genres`) cannot be stored 
+    directly in relational databases. We resolve it using a junction table (`content_genres`) 
+    with a composite primary key formed by `(content_id, genre_id)` and foreign keys referencing 
+    both parent tables.
+
+Q3: How does your application prevent SQL Injection attacks?
+A3: We use parameterized queries exclusively with `%s` placeholders. When executing queries 
+    via `cur.execute(sql, params)`, the MySQL driver sends the query template and data 
+    separately, rendering any injected SQL commands harmless string literals.
+
+Q4: What is the difference between `ON DELETE CASCADE` and `ON DELETE SET NULL` in your project?
+A4: `ON DELETE CASCADE` automatically deletes child rows when a parent row is deleted 
+    (e.g., deleting a content title removes its entries in `content_genres`, `my_list`, and `ratings`). 
+    `ON DELETE SET NULL` sets the foreign key column to NULL when the referenced row is deleted 
+    (e.g., if an episode is deleted, `watch_history.episode_id` becomes NULL without deleting the user's watch history entry).
+
+Q5: What is normalization, and to what level is your schema normalized?
+A5: Normalization is the process of structuring a database to reduce data redundancy and improve data integrity. 
+    Our schema is normalized up to 3rd Normal Form (3NF). Repeating groups are eliminated (1NF), partial key 
+    dependencies are removed via composite keys (2NF), and non-key transitive dependencies are separated into lookup tables like `plans` (3NF).
+
+Q6: Why did you use `GROUP_CONCAT` in your SELECT queries?
+A6: `GROUP_CONCAT` is an aggregate function in MySQL that concatenates non-NULL values from a group into a single string. 
+    We used it to aggregate multiple genre names associated with a single content title (e.g., "Sci-Fi • Drama") in a single database round-trip.
+
+Q7: What is connection pooling, and why is it used?
+A7: Connection pooling creates and maintains a cache of database connections (`MySQLConnectionPool`). 
+    Instead of opening and closing a new connection for every HTTP request (which is computationally expensive), 
+    Flask acquires an active connection from the pool and returns it upon request completion (`teardown_appcontext`).
+
+Q8: How do you calculate and update the average rating of a movie?
+A8: When a user rates a movie, we execute an `INSERT ... ON DUPLICATE KEY UPDATE` on the `ratings` table, 
+    followed by an aggregate query `UPDATE content SET avg_rating = (SELECT ROUND(AVG(score), 1) FROM ratings WHERE content_id = %s)`.
+
+Q9: What is the purpose of the `COALESCE` function in your queries?
+A9: `COALESCE` returns the first non-NULL value in a list of arguments. In our Continue Watching query, 
+    we use `COALESCE(c.duration_mins, (SELECT SUM(duration_mins) FROM episodes WHERE content_id = c.content_id))` 
+    to handle both movies (which have `duration_mins`) and series (whose duration is calculated by summing episode runtimes).
+
+Q10: What is a Composite Primary Key? Give an example from your project.
+A10: A Composite Primary Key consists of two or more columns that together uniquely identify a record. 
+     In `my_list`, `(user_id, content_id)` form a composite primary key to ensure a user cannot add the same content title to their watchlist twice.
+
+Q11: How is user authentication secured in your backend?
+A11: Passwords are never stored in plaintext. During registration, passwords are hashed using PBKDF2-SHA256 
+     via `werkzeug.security.generate_password_hash`. During login, `check_password_hash` compares the submitted password against the stored hash. 
+     Authenticated sessions are stored securely in Flask signed session cookies.
+
+Q12: How does the LIKE operator work in your search functionality?
+A12: The `LIKE` operator is used for pattern matching in string comparisons. We pass `%search_term%` to match any 
+     title containing the user's query anywhere in its title string (`WHERE c.title LIKE %s`).
+
+Q13: What is the difference between `CHAR` and `VARCHAR`?
+A13: `CHAR` is fixed-length (padded with spaces if shorter), while `VARCHAR` is variable-length (uses only as many bytes 
+     as needed plus length prefix bytes). We used `VARCHAR` for flexible strings like `email`, `title`, and `name` to save storage.
+
+Q14: What is the role of `g` object in Flask regarding database connections?
+A14: `g` is Flask's application context global object. We store the database connection `g.db` on it during a request so 
+     multiple database queries within the same request reuse the same connection, and `@app.teardown_appcontext` automatically closes it at the end.
+
+Q15: How does your Real-Time DB Inspector track SQL executions without breaking app logic?
+A15: We created wrapper functions `query()` and `execute()` in `app.py`. Whenever a database operation runs, 
+     it measures the execution duration (`time.time()`), formats parameters, and appends the query details to an 
+     in-memory ring buffer (`deque`). The frontend polls REST endpoints (`/api/db/live-queries`) to display them live side-by-side.
+
+================================================================================
+                    GOOD LUCK WITH YOUR DBMS VIVA! 🎓🚀
+================================================================================

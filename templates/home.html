@@ -1,0 +1,98 @@
+{% extends "base.html" %}
+{% block title %}Home — StreamFlix{% endblock %}
+
+{% block content %}
+<div class="page">
+
+    {# ── Hero Featured Banner ── #}
+    {% if featured %}
+    <div class="hero-banner" style="background-image: url('{{ featured.poster_url }}');">
+        <div class="hero-content">
+            <div class="hero-badge"><span class="live-dot"></span> Now Showing</div>
+            <h1 class="hero-title">{{ featured.title }}</h1>
+            <div class="hero-meta">
+                <span class="rating-badge">★ {{ featured.avg_rating }}</span>
+                <span class="meta-year">{{ featured.release_year }}</span>
+                <span class="type-badge">{{ featured.type }}</span>
+                {% if featured.genres %}
+                <span class="hero-genres">{{ featured.genres }}</span>
+                {% endif %}
+            </div>
+            <p class="hero-description">{{ featured.description }}</p>
+            <div class="hero-buttons">
+                <form method="POST" action="{{ url_for('play', content_id=featured.content_id) }}" style="display:inline">
+                    <button type="submit" class="btn-play hero-btn">▶ Play Now</button>
+                </form>
+                <a href="{{ url_for('detail', content_id=featured.content_id) }}" class="btn-secondary hero-btn">ℹ More Info</a>
+            </div>
+        </div>
+    </div>
+    {% endif %}
+    {% if continue_watching %}
+    <section class="continue-watching-section">
+        <h2>Continue Watching</h2>
+        <div class="row-container">
+            <button class="scroll-arrow-btn scroll-arrow-left" onclick="scrollRow(this, -400)" aria-label="Scroll Left">&lsaquo;</button>
+            <div class="content-row">
+                {% for item in continue_watching %}
+                <a href="{{ url_for('detail', content_id=item.content_id) }}" class="cw-card">
+                    {% if item.poster_url %}
+                        <img src="{{ item.poster_url }}" alt="{{ item.title }}">
+                    {% else %}
+                        <div class="cw-placeholder">{{ item.title[:2]|upper }}</div>
+                    {% endif %}
+                    <div class="cw-info">
+                        <div class="cw-title">{{ item.title }}</div>
+                        <div class="cw-progress-bar">
+                            {% set pct = ((item.progress_mins / item.total_mins * 100) if item.total_mins else 10)|int %}
+                            <div class="cw-progress-fill" style="width: {{ pct }}%"></div>
+                        </div>
+                    </div>
+                </a>
+                {% endfor %}
+            </div>
+            <button class="scroll-arrow-btn scroll-arrow-right" onclick="scrollRow(this, 400)" aria-label="Scroll Right">&rsaquo;</button>
+        </div>
+    </section>
+    {% endif %}
+
+    {# ── Genre Rows ── #}
+    {% for row in genre_rows %}
+    <section class="genre-section">
+        <h2>{{ row.genre }}</h2>
+        <div class="row-container">
+            <button class="scroll-arrow-btn scroll-arrow-left" onclick="scrollRow(this, -500)" aria-label="Scroll Left">&lsaquo;</button>
+            <div class="content-row">
+                {% for item in row.content_list %}
+                <a href="{{ url_for('detail', content_id=item.content_id) }}" class="poster-card">
+                    {% if item.poster_url %}
+                        <img src="{{ item.poster_url }}" alt="{{ item.title }}">
+                    {% else %}
+                        <div class="poster-placeholder">{{ item.title[:2]|upper }}</div>
+                    {% endif %}
+                    <div class="poster-overlay">
+                        <div class="poster-title">{{ item.title }}</div>
+                        <div class="poster-meta">
+                            <span class="rating-badge">★ {{ item.avg_rating }}</span>
+                            <span>{{ item.release_year }}</span>
+                            <span class="type-badge">{{ item.type }}</span>
+                        </div>
+                    </div>
+                </a>
+                {% endfor %}
+            </div>
+            <button class="scroll-arrow-btn scroll-arrow-right" onclick="scrollRow(this, 500)" aria-label="Scroll Right">&rsaquo;</button>
+        </div>
+    </section>
+    {% endfor %}
+
+    {% if not genre_rows %}
+    <div class="empty-state">
+        <div class="empty-icon">🎞&#8203;</div>
+        <h3>Nothing here yet</h3>
+        <p>Content will appear once the database is seeded.</p>
+    </div>
+    {% endif %}
+
+</div>
+{% endblock %}

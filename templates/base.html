@@ -1,0 +1,373 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="StreamFlix — Your personal movie and series streaming platform.">
+    <meta name="theme-color" content="#0c0c0e">
+    <title>{% block title %}StreamFlix{% endblock %}</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Archivo+Black&family=Space+Grotesk:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}?v=15">
+</head>
+<body class="site-body">
+    {# ── Permanent Top Navbar Header ── #}
+    <nav class="navbar">
+        <div class="nav-left">
+            <a href="{{ url_for('home') if current_user else url_for('login') }}" class="navbar-brand">StreamFlix</a>
+            {% if current_user %}
+            <ul class="navbar-links">
+                <li><a href="{{ url_for('home') }}" class="{{ 'active' if request.endpoint == 'home' else '' }}">Home</a></li>
+                <li><a href="{{ url_for('my_list_page') }}" class="{{ 'active' if request.endpoint == 'my_list_page' else '' }}">My List</a></li>
+            </ul>
+            {% endif %}
+        </div>
+
+        <div class="nav-right">
+            {% if current_user %}
+            <form class="search-form" action="{{ url_for('search') }}" method="GET" autocomplete="off">
+                <div class="search-input-wrapper">
+                    <span class="search-icon" aria-hidden="true">
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round"><circle cx="11" cy="11" r="7"/><path d="M20 20l-4-4"/></svg>
+                </span>
+                    <input type="text" name="q" class="search-input"
+                           placeholder="Search titles, genres..."
+                           value="{{ request.args.get('q', '') }}"
+                           id="search-input" autocomplete="off">
+                    <kbd class="search-key-hint">/</kbd>
+                    <div class="search-dropdown" id="search-dropdown"></div>
+                </div>
+            </form>
+
+            <div class="navbar-user">
+                <div class="user-avatar">{{ current_user.name[0]|upper }}</div>
+                <span class="user-name">{{ current_user.name }}</span>
+                <a href="{{ url_for('logout') }}" class="btn-logout" id="btn-logout">Sign Out</a>
+            </div>
+            {% else %}
+            <a href="{{ url_for('login') }}" class="btn-logout">Sign In</a>
+            <a href="{{ url_for('register') }}" class="btn-logout">Register</a>
+            {% endif %}
+        </div>
+    </nav>
+
+    {# ── Main Page Layout Wrapper ── #}
+    <div class="app-layout-wrapper" id="app-layout-wrapper">
+        <main class="main-content-area">
+            {# ── Flash Messages ── #}
+            {% with messages = get_flashed_messages(with_categories=true) %}
+            {% if messages %}
+            <div class="flash-container">
+                {% for category, message in messages %}
+                <div class="flash-msg {{ category }}"><span class="slate">{{ category }}</span> {{ message }}</div>
+                {% endfor %}
+            </div>
+            {% endif %}
+            {% endwith %}
+
+            {# ── Page Content ── #}
+            {% block content %}{% endblock %}
+
+            {# ── Footer ── #}
+            {% if current_user %}
+            <div class="sprockets"></div>
+            <footer class="footer">
+                StreamFlix &copy; 2024 &mdash; College DBMS Project &middot; Built with Flask &amp; MySQL
+            </footer>
+            {% endif %}
+        </main>
+
+    </div>
+
+    <!-- Live Toast Notification Popup -->
+    <div id="live-toast" class="live-toast"></div>
+
+
+    {# ── Cinematic Fullscreen Video Player & Loading Modal ── #}
+    <div id="video-player-modal" class="video-player-modal">
+        <div class="video-player-overlay" onclick="closeVideoPlayer()"></div>
+        <div class="video-player-container">
+            <!-- Header Bar -->
+            <div class="video-header-bar">
+                <div class="video-title-info">
+                    <span class="video-stream-badge">LIVE STREAM</span>
+                    <h3 id="video-modal-title">Streaming Title</h3>
+                    <span class="video-quality-tag" id="video-quality-tag">4K ULTRA HD • DOLBY ATMOS</span>
+                </div>
+                <button type="button" class="btn-close-video" onclick="closeVideoPlayer()">&times;</button>
+            </div>
+
+            <!-- Video Screen Viewport -->
+            <div class="video-screen-viewport" id="video-screen-viewport">
+                <!-- Buffer / Loading State -->
+                <div class="video-loader-card" id="video-loader-card">
+                    <div class="streamflix-loader-spinner">
+                        <div class="spinner-ring"></div>
+                        <span class="spinner-brand">STREAMFLIX</span>
+                    </div>
+                    <div class="video-buffer-status">
+                        <span class="buffer-text" id="buffer-status-text">Connecting to Media Server...</span>
+                        <div class="video-progress-bar">
+                            <div class="video-progress-fill" id="loader-progress-fill"></div>
+                        </div>
+                        <div class="video-meta-status">
+                            <span id="buffer-pct">0%</span> • <span>MySQL Table: <code>watch_history</code> Updated</span>
+                        </div>
+                    </div>
+                    <!-- Audio Wave Visualizer -->
+                    <div class="audio-equalizer">
+                        <span class="eq-bar"></span>
+                        <span class="eq-bar"></span>
+                        <span class="eq-bar"></span>
+                        <span class="eq-bar"></span>
+                        <span class="eq-bar"></span>
+                    </div>
+                </div>
+
+                <!-- Video Playing View -->
+                <div class="video-canvas-view" id="video-canvas-view" style="display:none;">
+                    <div class="simulated-video-bg" id="simulated-video-bg">
+                        <!-- High Tech Stream Visualizer -->
+                        <div class="video-pulse-wave"></div>
+                        <div class="playing-watermark">STREAMFLIX HIGH DEFINITION STREAM</div>
+                        <button class="center-play-toggle" id="center-play-toggle" onclick="togglePlayPauseState()">❚❚</button>
+                    </div>
+
+                    <!-- Bottom Controls Bar -->
+                    <div class="video-controls-bar">
+                        <button class="btn-video-ctrl" id="btn-video-play" onclick="togglePlayPauseState()">❚❚</button>
+                        <span class="video-time-display" id="video-time-display">00:05 / 01:45:00</span>
+                        <div class="video-timeline-track">
+                            <div class="video-timeline-fill" id="video-timeline-fill" style="width: 5%"></div>
+                        </div>
+                        <button class="btn-video-ctrl">🔊</button>
+                        <span class="video-bitrate">18.4 Mbps • 60 FPS</span>
+                        <button class="btn-video-ctrl" onclick="toggleFullscreenVideo()">⛶</button>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- StreamFlix App JavaScript -->
+    <script>
+        function escapeHtml(str) {
+            if (!str) return '';
+            return String(str).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+        }
+
+        document.addEventListener('DOMContentLoaded', () => {
+            attachFormInterceptors();
+        });
+
+        function attachFormInterceptors() {
+            document.querySelectorAll('form').forEach(form => {
+                const action = form.getAttribute('action') || '';
+                if (action.includes('/mylist/') || action.includes('/rate/') || action.includes('/play/')) {
+                    form.addEventListener('submit', async function(e) {
+                        e.preventDefault();
+                        const formData = new FormData(form);
+                        try {
+                            const res = await fetch(action, {
+                                method: 'POST',
+                                headers: { 'X-Requested-With': 'XMLHttpRequest' },
+                                body: formData
+                            });
+                            const data = await res.json();
+                            if (data.success) {
+                                showToast(`⚡ DB Updated: ${data.message}`);
+
+                                // If rating form, update UI badge if exists
+                                if (data.new_avg) {
+                                    const ratingBadge = document.querySelector('.detail-meta .rating-star');
+                                    if (ratingBadge) ratingBadge.textContent = `★ ${data.new_avg}`;
+                                }
+
+                                // If play action, trigger Cinematic Video Player Modal!
+                                if (action.includes('/play/')) {
+                                    openVideoPlayer(data);
+                                }
+                            }
+                        } catch (err) {
+                            form.submit();
+                        }
+                    });
+                }
+            });
+        }
+
+        // ── Cinematic Video Player & Buffer Loader Logic ──
+        let videoProgressInterval = null;
+        let isPlayingVideo = true;
+
+        function openVideoPlayer(data) {
+            const modal = document.getElementById('video-player-modal');
+            const titleEl = document.getElementById('video-modal-title');
+            const loaderCard = document.getElementById('video-loader-card');
+            const canvasView = document.getElementById('video-canvas-view');
+            const progressFill = document.getElementById('loader-progress-fill');
+            const pctText = document.getElementById('buffer-pct');
+            const statusText = document.getElementById('buffer-status-text');
+
+            if (!modal) return;
+
+            if (titleEl) titleEl.textContent = data.title || 'StreamFlix Media';
+            if (loaderCard) loaderCard.style.display = 'flex';
+            if (canvasView) canvasView.style.display = 'none';
+            if (progressFill) progressFill.style.width = '0%';
+            if (pctText) pctText.textContent = '0%';
+            if (statusText) statusText.textContent = 'Establishing Encrypted Stream...';
+
+            modal.classList.add('show');
+            isPlayingVideo = true;
+
+            // Animate realistic stream buffer loading progress
+            let currentPct = 0;
+            clearInterval(videoProgressInterval);
+            videoProgressInterval = setInterval(() => {
+                currentPct += Math.floor(Math.random() * 18) + 12;
+                if (currentPct >= 100) {
+                    currentPct = 100;
+                    clearInterval(videoProgressInterval);
+
+                    setTimeout(() => {
+                        if (loaderCard) loaderCard.style.display = 'none';
+                        if (canvasView) canvasView.style.display = 'flex';
+                    }, 400);
+                }
+
+                if (progressFill) progressFill.style.width = `${currentPct}%`;
+                if (pctText) pctText.textContent = `${currentPct}%`;
+
+                if (currentPct > 35 && currentPct < 75 && statusText) {
+                    statusText.textContent = 'Buffering 4K HDR Stream & Decrypting Tokens...';
+                } else if (currentPct >= 75 && statusText) {
+                    statusText.textContent = 'Ready! Launching Cinematic Video View...';
+                }
+            }, 180);
+        }
+
+        function closeVideoPlayer() {
+            const modal = document.getElementById('video-player-modal');
+            if (modal) modal.classList.remove('show');
+            clearInterval(videoProgressInterval);
+        }
+
+        function togglePlayPauseState() {
+            isPlayingVideo = !isPlayingVideo;
+            const centerBtn = document.getElementById('center-play-toggle');
+            const ctrlBtn = document.getElementById('btn-video-play');
+
+            if (isPlayingVideo) {
+                if (centerBtn) centerBtn.textContent = '❚❚';
+                if (ctrlBtn) ctrlBtn.textContent = '❚❚';
+                showToast('▶ Video Resumed');
+            } else {
+                if (centerBtn) centerBtn.textContent = '▶';
+                if (ctrlBtn) ctrlBtn.textContent = '▶';
+                showToast('⏸ Video Paused');
+            }
+        }
+
+        function toggleFullscreenVideo() {
+            const viewport = document.getElementById('video-screen-viewport');
+            if (!viewport) return;
+            if (!document.fullscreenElement) {
+                viewport.requestFullscreen().catch(err => {
+                    showToast('Fullscreen toggled');
+                });
+            } else {
+                document.exitFullscreen();
+            }
+        }
+
+        function showToast(msg, isError = false) {
+            const toast = document.getElementById('live-toast');
+            if (!toast) return;
+            toast.textContent = msg;
+            toast.className = `live-toast show ${isError ? 'error-toast' : ''}`;
+            setTimeout(() => {
+                toast.className = 'live-toast';
+            }, 3500);
+        }
+
+        // ── Instant Live Search Dropdown ──
+        const searchInput = document.getElementById('search-input');
+        const searchDropdown = document.getElementById('search-dropdown');
+        let searchTimer = null;
+
+        if (searchInput && searchDropdown) {
+            searchInput.addEventListener('input', function() {
+                clearTimeout(searchTimer);
+                const query = this.value.trim();
+                if (query.length < 2) {
+                    searchDropdown.style.display = 'none';
+                    return;
+                }
+                searchTimer = setTimeout(async () => {
+                    try {
+                        const res = await fetch(`/search?q=${encodeURIComponent(query)}&format=json`, {
+                            headers: { 'X-Requested-With': 'XMLHttpRequest' }
+                        });
+                        const data = await res.json();
+                        if (data && data.length > 0) {
+                            searchDropdown.innerHTML = data.slice(0, 6).map(item => `
+                                <a href="/title/${item.content_id}" class="search-item">
+                                    ${item.poster_url ? `<img src="${item.poster_url}" class="search-thumb" alt="">` : `<div class="search-thumb-placeholder">${escapeHtml(item.title.substring(0,2).toUpperCase())}</div>`}
+                                    <div class="search-info">
+                                        <div class="search-title">${escapeHtml(item.title)}</div>
+                                        <div class="search-meta">★ ${item.avg_rating} · ${item.release_year} · ${escapeHtml(item.genres || item.type)}</div>
+                                    </div>
+                                </a>
+                            `).join('') + `<a href="/search?q=${encodeURIComponent(query)}" class="search-view-all">View all ${data.length} results &rarr;</a>`;
+                            searchDropdown.style.display = 'block';
+                        } else {
+                            searchDropdown.innerHTML = `<div class="search-empty-item">No matches for "${escapeHtml(query)}"</div>`;
+                            searchDropdown.style.display = 'block';
+                        }
+                    } catch (err) {
+                        console.error("Search fetch error:", err);
+                    }
+                }, 200);
+            });
+
+            document.addEventListener('click', function(e) {
+                if (!searchInput.contains(e.target) && !searchDropdown.contains(e.target)) {
+                    searchDropdown.style.display = 'none';
+                }
+            });
+
+            searchInput.addEventListener('focus', function() {
+                if (this.value.trim().length >= 2 && searchDropdown.children.length > 0) {
+                    searchDropdown.style.display = 'block';
+                }
+            });
+        }
+
+        // ── Helper: Horizontal Row Scroll Controls ──
+        function scrollRow(btn, offset) {
+            const container = btn.closest('.row-container');
+            if (!container) return;
+            const row = container.querySelector('.content-row');
+            if (row) {
+                row.scrollBy({ left: offset, behavior: 'smooth' });
+            }
+        }
+
+        // ── Keyboard Shortcuts (Esc = Close modal, / = Focus search) ──
+        document.addEventListener('keydown', (e) => {
+            if (e.key === 'Escape') {
+                closeVideoPlayer();
+            } else if (e.key === '/' && document.activeElement.tagName !== 'INPUT' && document.activeElement.tagName !== 'TEXTAREA') {
+                e.preventDefault();
+                const searchInp = document.getElementById('search-input');
+                if (searchInp) searchInp.focus();
+            }
+        });
+    </script>
+</body>
+</html>
+
+
+

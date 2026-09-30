@@ -1,0 +1,181 @@
+================================================================================
+STREAMFLIX — DATABASE CREATION, TABLES & REAL-TIME MUTATION SQL CODE
+================================================================================
+
+PART 1: DATABASE & TABLE CREATION CODE (DDL)
+--------------------------------------------------------------------------------
+
+-- 1. Create Database
+CREATE DATABASE IF NOT EXISTS streamflix
+  CHARACTER SET utf8mb4
+  COLLATE utf8mb4_unicode_ci;
+
+USE streamflix;
+
+
+-- 2. USERS TABLE
+CREATE TABLE users (
+    user_id       INT AUTO_INCREMENT PRIMARY KEY,
+    name          VARCHAR(100)  NOT NULL,
+    email         VARCHAR(255)  NOT NULL UNIQUE,
+    password_hash VARCHAR(256)  NOT NULL,
+    created_at    DATETIME      NOT NULL DEFAULT CURRENT_TIMESTAMP
+) ENGINE=InnoDB;
+
+
+-- 3. GENRES TABLE
+CREATE TABLE genres (
+    genre_id   INT AUTO_INCREMENT PRIMARY KEY,
+    genre_name VARCHAR(50) NOT NULL UNIQUE
+) ENGINE=InnoDB;
+
+
+-- 4. CONTENT TABLE (Movies & Series Catalog)
+CREATE TABLE content (
+    content_id    INT AUTO_INCREMENT PRIMARY KEY,
+    title         VARCHAR(200)           NOT NULL,
+    description   TEXT,
+    type          ENUM('movie','series') NOT NULL,
+    release_year  YEAR,
+    duration_mins INT,                           -- NULL for series
+    total_seasons INT,                           -- NULL for movies
+    poster_url    VARCHAR(500),
+    avg_rating    DECIMAL(3,1) DEFAULT 0.0
+) ENGINE=InnoDB;
+
+
+-- 5. CONTENT_GENRES TABLE (Many-to-Many Junction)
+CREATE TABLE content_genres (
+    content_id INT NOT NULL,
+    genre_id   INT NOT NULL,
+    PRIMARY KEY (content_id, genre_id),
+    FOREIGN KEY (content_id) REFERENCES content(content_id) ON DELETE CASCADE,
+    FOREIGN KEY (genre_id)   REFERENCES genres(genre_id)    ON DELETE CASCADE
+) ENGINE=InnoDB;
+
+
+-- 6. EPISODES TABLE (TV Series Episodes)
+CREATE TABLE episodes (
+    episode_id     INT AUTO_INCREMENT PRIMARY KEY,
+    content_id     INT          NOT NULL,
+    season_number  INT          NOT NULL,
+    episode_number INT          NOT NULL,
+    title          VARCHAR(200) NOT NULL,
+    duration_mins  INT,
+    FOREIGN KEY (content_id) REFERENCES content(content_id) ON DELETE CASCADE,
+    UNIQUE KEY uq_episode (content_id, season_number, episode_number)
+) ENGINE=InnoDB;
+
+
+-- 7. WATCH HISTORY TABLE (Real-Time Media Plays)
+CREATE TABLE watch_history (
+    history_id    INT AUTO_INCREMENT PRIMARY KEY,
+    user_id       INT      NOT NULL,
+    content_id    INT      NOT NULL,
+    episode_id    INT,                             -- NULL for movies
+    progress_mins INT      NOT NULL DEFAULT 0,
+    last_watched  DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (user_id)    REFERENCES users(user_id)      ON DELETE CASCADE,
+    FOREIGN KEY (content_id) REFERENCES content(content_id) ON DELETE CASCADE,
+    FOREIGN KEY (episode_id) REFERENCES episodes(episode_id) ON DELETE SET NULL
+) ENGINE=InnoDB;
+
+
+-- 8. MY LIST TABLE (User Watchlist)
+CREATE TABLE my_list (
+    user_id    INT NOT NULL,
+    content_id INT NOT NULL,
+    added_at   DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    PRIMARY KEY (user_id, content_id),
+    FOREIGN KEY (user_id)    REFERENCES users(user_id)      ON DELETE CASCADE,
+    FOREIGN KEY (content_id) REFERENCES content(content_id) ON DELETE CASCADE
+) ENGINE=InnoDB;
+
+
+-- 9. RATINGS TABLE (User Ratings & Scores)
+CREATE TABLE ratings (
+    user_id    INT NOT NULL,
+    content_id INT NOT NULL,
+    score      TINYINT NOT NULL CHECK (score BETWEEN 1 AND 10),
+    rated_at   DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    PRIMARY KEY (user_id, content_id),
+    FOREIGN KEY (user_id)    REFERENCES users(user_id)      ON DELETE CASCADE,
+    FOREIGN KEY (content_id) REFERENCES content(content_id) ON DELETE CASCADE
+) ENGINE=InnoDB;
+
+
+-- 10. PLANS TABLE (Subscription Tiers)
+CREATE TABLE plans (
+    plan_id     INT AUTO_INCREMENT PRIMARY KEY,
+    plan_name   VARCHAR(50)    NOT NULL UNIQUE,
+    price       DECIMAL(6,2)   NOT NULL,
+    max_screens INT            NOT NULL DEFAULT 1
+) ENGINE=InnoDB;
+
+
+-- 11. SUBSCRIPTIONS TABLE (User Subscriptions)
+CREATE TABLE subscriptions (
+    subscription_id INT AUTO_INCREMENT PRIMARY KEY,
+    user_id         INT     NOT NULL,
+    plan_id         INT     NOT NULL,
+    start_date      DATE    NOT NULL,
+    end_date        DATE,
+    is_active       BOOLEAN NOT NULL DEFAULT TRUE,
+    FOREIGN KEY (user_id) REFERENCES users(user_id) ON DELETE CASCADE,
+    FOREIGN KEY (plan_id) REFERENCES plans(plan_id) ON DELETE CASCADE
+) ENGINE=InnoDB;
+
+
+================================================================================
+PART 2: REAL-TIME DATA INSERTION & MUTATION STATEMENTS (DML)
+================================================================================
+
+-- 1. Real-Time User Registration (INSERT INTO users)
+INSERT INTO users (name, email, password_hash) 
+VALUES ('Alex Smith', 'alex@example.com', 'pbkdf2:sha256:...');
+
+
+-- 2. Real-Time Media Play (INSERT INTO watch_history)
+-- Executed whenever a user clicks "Play Now" or watches a title
+INSERT INTO watch_history (user_id, content_id, episode_id, progress_mins)
+VALUES (1, 20, 1, 0);
+
+
+-- 3. Real-Time Rating Submission (INSERT/UPDATE INTO ratings)
+-- Upserts rating score (1-10) for the user
+INSERT INTO ratings (user_id, content_id, score) 
+VALUES (1, 20, 9)
+ON DUPLICATE KEY UPDATE score = 9, rated_at = NOW();
+
+
+-- 4. Real-Time Average Rating Recalculation (UPDATE content)
+-- Recalculates and updates the average rating of a movie/series using a Subquery
+UPDATE content c
+SET c.avg_rating = (
+    SELECT ROUND(AVG(r.score), 1)
+    FROM ratings r
+    WHERE r.content_id = 20
+)
+WHERE c.content_id = 20;
+
+
+-- 5. Real-Time Add to Watchlist (INSERT INTO my_list)
+INSERT INTO my_list (user_id, content_id) 
+VALUES (1, 20);
+
+
+-- 6. Real-Time Remove from Watchlist (DELETE FROM my_list)
+DELETE FROM my_list 
+WHERE user_id = 1 AND content_id = 20;
+
+
+-- 7. Real-Time Custom Data Inserter from DB Inspector Console
+INSERT INTO content (title, type, release_year, avg_rating) 
+VALUES ('Cyber Realm', 'movie', 2024, 8.0);
+
+INSERT INTO genres (genre_name) 
+VALUES ('Cyberpunk');
+
+================================================================================
+END OF CODE REFERENCE
+================================================================================

@@ -1,0 +1,117 @@
+{% extends "base.html" %}
+{% block title %}{{ item.title }} — StreamFlix{% endblock %}
+
+{% block content %}
+<div class="page">
+
+{# ── Hero Section ── #}
+<div class="detail-hero">
+    <div class="detail-poster">
+        {% if item.poster_url %}
+            <img src="{{ item.poster_url }}" alt="{{ item.title }}">
+        {% else %}
+            <div class="poster-placeholder">{{ item.title[:2]|upper }}</div>
+        {% endif %}
+    </div>
+
+    <div class="detail-info">
+        <span class="slate">// {{ 'Feature Presentation' if item.type == 'movie' else 'Series Presentation' }}</span>
+        <h1>{{ item.title }}</h1>
+
+        <div class="detail-meta">
+            <span class="rating-star">★ {{ item.avg_rating }}</span>
+            <span>{{ item.release_year }}</span>
+            <span class="type-badge">{{ item.type|capitalize }}</span>
+            {% if item.type == 'movie' and item.duration_mins %}
+                <span>{{ item.duration_mins }} min</span>
+            {% elif item.type == 'series' and item.total_seasons %}
+                <span>{{ item.total_seasons }} Season{{ 's' if item.total_seasons > 1 else '' }}</span>
+            {% endif %}
+        </div>
+
+        {# Genre Tags #}
+        {% if item.genres %}
+        <div class="genre-tags">
+            {% for genre in item.genres.split(', ') %}
+            <span class="genre-tag">{{ genre }}</span>
+            {% endfor %}
+        </div>
+        {% endif %}
+
+        <p class="detail-description">{{ item.description }}</p>
+
+        {# Action Buttons #}
+        <div class="detail-actions">
+            <form method="POST" action="{{ url_for('play', content_id=item.content_id) }}" style="display:inline">
+                <button type="submit" class="btn-play" id="btn-play">▶ Play Now</button>
+            </form>
+
+            {% if in_list %}
+            <form method="POST" action="{{ url_for('remove_from_list', content_id=item.content_id) }}" style="display:inline">
+                <button type="submit" class="btn-secondary btn-remove" id="btn-remove-list">✕ Remove from List</button>
+            </form>
+            {% else %}
+            <form method="POST" action="{{ url_for('add_to_list', content_id=item.content_id) }}" style="display:inline">
+                <button type="submit" class="btn-secondary" id="btn-add-list">+ My List</button>
+            </form>
+            {% endif %}
+        </div>
+
+        {# Rating #}
+        <form class="rating-form" method="POST" action="{{ url_for('rate', content_id=item.content_id) }}">
+            <span class="rating-label">Rate Title:</span>
+            <div class="star-rating-bar" id="star-rating-bar">
+                {% for s in range(1, 11) %}
+                <button type="button" class="star-btn {{ 'selected' if user_rating == s else '' }}" data-score="{{ s }}" onclick="selectStarScore(this, {{ s }})">{{ s }}</button>
+                {% endfor %}
+            </div>
+            <input type="hidden" name="score" id="score-input" value="{{ user_rating if user_rating else 5 }}">
+            <button type="submit" id="btn-rate">★ Rate Now</button>
+        </form>
+
+        <script>
+            function selectStarScore(btn, score) {
+                document.querySelectorAll('.star-btn').forEach(b => b.classList.remove('selected'));
+                btn.classList.add('selected');
+                document.getElementById('score-input').value = score;
+            }
+        </script>
+    </div>
+</div>
+
+{# ── Episodes (series only) ── #}
+{% if episodes %}
+<div class="episodes-section">
+    <h2>Episodes</h2>
+    <table class="episodes-table">
+        <thead>
+            <tr>
+                <th>Season</th>
+                <th>Episode</th>
+                <th>Title</th>
+                <th>Duration</th>
+                <th>Action</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for ep in episodes %}
+            <tr>
+                <td class="ep-number">S{{ ep.season_number }}</td>
+                <td class="ep-number">E{{ ep.episode_number }}</td>
+                <td class="ep-title">{{ ep.title }}</td>
+                <td class="ep-duration">{{ ep.duration_mins }} min</td>
+                <td>
+                    <form method="POST" action="{{ url_for('play', content_id=item.content_id) }}" style="display:inline">
+                        <input type="hidden" name="episode_id" value="{{ ep.episode_id }}">
+                        <button type="submit" class="ep-play-btn">▶ Play Episode</button>
+                    </form>
+                </td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+</div>
+{% endif %}
+
+</div>
+{% endblock %}

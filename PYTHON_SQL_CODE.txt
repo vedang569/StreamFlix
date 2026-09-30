@@ -1,0 +1,378 @@
+================================================================================
+STREAMFLIX — PYTHON SQL IMPLEMENTATION CODE REFERENCE
+College DBMS Project — Flask & MySQL Integration
+================================================================================
+
+TABLE OF CONTENTS:
+------------------
+1. MySQL Connection Pool & Database Configuration
+2. Helper Functions: query() and execute()
+3. Real-Time SQL Execution Logging Engine
+4. User Authentication Queries (Register & Login)
+5. Content & Catalog Retrieval Queries (Home, Search, Details)
+6. Action Queries (My List, Rate Title, Play Media)
+7. Real-Time DB Inspector API Endpoints
+8. Database Initialization & Seeding Script (init_db.py)
+
+================================================================================
+1. MYSQL CONNECTION POOL & DATABASE CONFIGURATION (from app.py)
+================================================================================
+
+import os
+import mysql.connector
+from mysql.connector import pooling
+from dotenv import load_dotenv
+
+load_dotenv()
+
+# Database Connection Settings
+db_config = {
+    "host":     os.getenv("DB_HOST", "localhost"),
+    "port":     int(os.getenv("DB_PORT", 3306)),
+    "user":     os.getenv("DB_USER", "root"),
+    "password": os.getenv("DB_PASSWORD", ""),
+    "database": os.getenv("DB_NAME", "streamflix"),
+}
+
+# Thread-safe MySQL Connection Pool (Pool size: 5)
+pool = pooling.MySQLConnectionPool(
+    pool_name="streamflix_pool",
+    pool_size=5,
+    **db_config
+)
+
+def get_db():
+    """Returns an active MySQL connection from the pool for current request context (g)."""
+    if "db" not in g:
+        g.db = pool.get_connection()
+    return g.db
+
+@app.teardown_appcontext
+def close_db(exc):
+    """Automatically closes and releases connection back to pool after request."""
+    db = g.pop("db", None)
+    if db is not None:
+        db.close()
+
+
+================================================================================
+2. HELPER FUNCTIONS: query() AND execute() (from app.py)
+================================================================================
+
+def query(sql, params=None, fetchone=False, skip_log=False):
+    """
+    Executes a SELECT query and returns dictionary row results.
+    Prevents SQL injection using parameterized tuple binding (%s).
+    """
+    start_time = time.time()
+    conn = get_db()
+    cur = conn.cursor(dictionary=True)
+    cur.execute(sql, params or ())
+    rows = cur.fetchone() if fetchone else cur.fetchall()
+    cur.close()
+    duration_ms = (time.time() - start_time) * 1000
+    if not skip_log:
+        log_sql_execution(sql, params, duration_ms, is_write=False)
+    return rows
+
+
+def execute(sql, params=None, skip_log=False):
+    """
+    Executes INSERT / UPDATE / DELETE state-changing statements and commits.
+    Returns last inserted auto-increment ID.
+    """
+    start_time = time.time()
+    conn = get_db()
+    cur = conn.cursor()
+    cur.execute(sql, params or ())
+    conn.commit()
+    last_id = cur.lastrowid
+    cur.close()
+    duration_ms = (time.time() - start_time) * 1000
+    if not skip_log:
+        log_sql_execution(sql, params, duration_ms, is_write=True)
+    return last_id
+
+
+================================================================================
+3. REAL-TIME SQL EXECUTION LOGGING ENGINE (from app.py)
+================================================================================
+
+from collections import deque
+from datetime import datetime
+
+# Ring buffer storing last 100 executed database statements
+query_log_buffer = deque(maxlen=100)
+
+def log_sql_execution(sql, params, duration_ms, is_write=False):
+    """Logs SQL statement execution time, params, and operation type for DB Inspector UI."""
+    clean_sql = " ".join(sql.strip().split())
+    if not clean_sql:
+        return
+    first_word = clean_sql.split()[0].upper()
+
+    formatted_params = None
+    if params:
+        if isinstance(params, (tuple, list)):
+            formatted_params = [str(p) for p in params]
+        elif isinstance(params, dict):
+            formatted_params = {k: str(v) for k, v in params.items()}
+        else:
+            formatted_params = str(params)
+
+    entry = {
+        "id": len(query_log_buffer) + 1,
+        "timestamp": datetime.now().strftime("%H:%M:%S.%f")[:-3],
+        "sql": clean_sql,
+        "type": first_word,
+        "params": formatted_params,
+        "duration_ms": round(duration_ms, 2),
+        "is_write": is_write
+    }
+    query_log_buffer.appendleft(entry)
+
+
+================================================================================
+4. USER AUTHENTICATION QUERIES (from app.py)
+================================================================================
+
+# 4.1 Check Duplicate User Email
+existing = query(
+    "SELECT user_id FROM users WHERE email = %s",
+    (email,),
+    fetchone=True
+)
+
+# 4.2 Register New User (INSERT)
+pw_hash = generate_password_hash(password)
+user_id = execute(
+    "INSERT INTO users (name, email, password_hash) VALUES (%s, %s, %s)",
+    (name, email, pw_hash)
+)
+
+# 4.3 Login User Lookup (SELECT)
+user = query(
+    "SELECT user_id, name, password_hash FROM users WHERE email = %s",
+    (email,),
+    fetchone=True
+)
+
+
+================================================================================
+5. CONTENT & CATALOG RETRIEVAL QUERIES (from app.py)
+================================================================================
+
+# 5.1 Featured Banner Selection (Hero Page)
+featured = query("""
+    SELECT c.content_id, c.title, c.description, c.poster_url, c.type,
+           c.avg_rating, c.release_year,
+           GROUP_CONCAT(g.genre_name ORDER BY g.genre_name SEPARATOR ' • ') AS genres
+    FROM content c
+    LEFT JOIN content_genres cg ON cg.content_id = c.content_id
+    LEFT JOIN genres g ON g.genre_id = cg.genre_id
+    WHERE c.avg_rating >= 8.5
+    GROUP BY c.content_id
+    ORDER BY c.avg_rating DESC
+    LIMIT 1
+""", fetchone=True)
+
+
+# 5.2 Continue Watching Row (JOIN watch_history + content + episodes)
+continue_watching = query("""
+    SELECT c.content_id, c.title, c.poster_url, c.type,
+           wh.progress_mins, wh.last_watched,
+           COALESCE(c.duration_mins,
+               (SELECT SUM(e.duration_mins) FROM episodes e
+                WHERE e.content_id = c.content_id)) AS total_mins
+    FROM watch_history wh
+    JOIN content c ON c.content_id = wh.content_id
+    WHERE wh.user_id = %s
+    ORDER BY wh.last_watched DESC
+    LIMIT 20
+""", (user_id,))
+
+
+# 5.3 Fetch Genre Rows (JOIN content + content_genres + genres)
+genres = query("SELECT genre_id, genre_name FROM genres ORDER BY genre_name")
+genre_rows = []
+for g_row in genres:
+    items = query("""
+        SELECT c.content_id, c.title, c.poster_url, c.type,
+               c.avg_rating, c.release_year
+        FROM content c
+        JOIN content_genres cg ON cg.content_id = c.content_id
+        WHERE cg.genre_id = %s
+        ORDER BY c.avg_rating DESC
+    """, (g_row["genre_id"],))
+    if items:
+        genre_rows.append({"genre": g_row["genre_name"], "content_list": items})
+
+
+# 5.4 Live Search Query (LIKE Pattern Matching)
+results = query("""
+    SELECT c.content_id, c.title, c.description, c.poster_url, c.type,
+           c.avg_rating, c.release_year,
+           GROUP_CONCAT(DISTINCT g.genre_name ORDER BY g.genre_name SEPARATOR ', ') AS genres
+    FROM content c
+    LEFT JOIN content_genres cg ON cg.content_id = c.content_id
+    LEFT JOIN genres g ON g.genre_id = cg.genre_id
+    WHERE c.title LIKE %s 
+       OR c.description LIKE %s 
+       OR g.genre_name LIKE %s 
+       OR c.type LIKE %s
+    GROUP BY c.content_id
+    ORDER BY c.avg_rating DESC
+""", (like_term, like_term, like_term, like_term))
+
+
+# 5.5 Title Detail View (Single Title Details)
+item = query("""
+    SELECT c.*,
+           GROUP_CONCAT(g.genre_name ORDER BY g.genre_name SEPARATOR ', ') AS genres
+    FROM content c
+    LEFT JOIN content_genres cg ON cg.content_id = c.content_id
+    LEFT JOIN genres g ON g.genre_id = cg.genre_id
+    WHERE c.content_id = %s
+    GROUP BY c.content_id
+""", (content_id,), fetchone=True)
+
+
+================================================================================
+6. ACTION QUERIES: MY LIST, RATING, WATCH HISTORY (from app.py)
+================================================================================
+
+# 6.1 Add Title to My List
+execute(
+    "INSERT INTO my_list (user_id, content_id) VALUES (%s, %s)",
+    (user_id, content_id)
+)
+
+# 6.2 Remove Title from My List
+execute(
+    "DELETE FROM my_list WHERE user_id = %s AND content_id = %s",
+    (user_id, content_id)
+)
+
+# 6.3 Rate Content & Automatically Recalculate Average Rating
+existing = query(
+    "SELECT 1 FROM ratings WHERE user_id = %s AND content_id = %s",
+    (user_id, content_id),
+    fetchone=True
+)
+if existing:
+    execute(
+        "UPDATE ratings SET score = %s, rated_at = NOW() WHERE user_id = %s AND content_id = %s",
+        (score, user_id, content_id)
+    )
+else:
+    execute(
+        "INSERT INTO ratings (user_id, content_id, score) VALUES (%s, %s, %s)",
+        (user_id, content_id, score)
+    )
+
+# Subquery Update: Recalculates avg_rating on content table
+execute("""
+    UPDATE content c
+    SET c.avg_rating = (
+        SELECT ROUND(AVG(r.score), 1)
+        FROM ratings r
+        WHERE r.content_id = %s
+    )
+    WHERE c.content_id = %s
+""", (content_id, content_id))
+
+
+# 6.4 Play Title / Episode (Insert Watch History Record)
+execute("""
+    INSERT INTO watch_history (user_id, content_id, episode_id, progress_mins)
+    VALUES (%s, %s, %s, %s)
+""", (user_id, content_id, episode_id, 0))
+
+
+================================================================================
+7. REAL-TIME DB INSPECTOR API ENDPOINTS (from app.py)
+================================================================================
+
+# 7.1 Stream Live Query Log to Frontend
+@app.route("/api/db/live-queries")
+def api_live_queries():
+    return jsonify(list(query_log_buffer))
+
+
+# 7.2 Fetch Table Row Counts
+@app.route("/api/db/tables")
+def api_db_tables():
+    allowed_tables = ["users", "content", "genres", "content_genres", "episodes", "watch_history", "my_list", "ratings", "plans", "subscriptions"]
+    tables_info = []
+    for tbl in allowed_tables:
+        res = query(f"SELECT COUNT(*) as count FROM {tbl}", fetchone=True, skip_log=True)
+        tables_info.append({"name": tbl, "rows": res["count"] if res else 0})
+    return jsonify(tables_info)
+
+
+# 7.3 Fetch Table Rows Data for Inspector Grid
+@app.route("/api/db/table-data/<table_name>")
+def api_table_data(table_name):
+    allowed_tables = ["users", "content", "genres", "content_genres", "episodes", "watch_history", "my_list", "ratings", "plans", "subscriptions"]
+    if table_name not in allowed_tables:
+        return jsonify({"error": "Invalid table"}), 400
+    rows = query(f"SELECT * FROM {table_name} LIMIT 25", skip_log=True)
+    return jsonify({"table": table_name, "data": rows or []})
+
+
+# 7.4 Execute Custom Ad-Hoc SQL Query from Inspector Terminal
+@app.route("/api/db/execute-custom-sql", methods=["POST"])
+def api_execute_custom_sql():
+    data = request.json or request.form
+    raw_sql = data.get("sql", "").strip()
+
+    if "DROP DATABASE" in raw_sql.upper():
+        return jsonify({"error": "DROP DATABASE blocked for safety"}), 403
+
+    if raw_sql.upper().startswith("SELECT"):
+        rows = query(raw_sql)
+        return jsonify({"type": "SELECT", "rows": rows, "count": len(rows)})
+    else:
+        last_id = execute(raw_sql)
+        return jsonify({"type": "MUTATION", "message": "SQL executed successfully!", "last_id": last_id})
+
+
+================================================================================
+8. DATABASE INITIALIZATION & SEEDING SCRIPT (init_db.py)
+================================================================================
+
+import os
+from dotenv import load_dotenv
+import mysql.connector
+
+load_dotenv()
+
+def init_db():
+    host = os.getenv("DB_HOST", "localhost")
+    port = int(os.getenv("DB_PORT", 3306))
+    user = os.getenv("DB_USER", "root")
+    password = os.getenv("DB_PASSWORD", "")
+
+    print(f"Connecting to MySQL server at {host}:{port} as '{user}'...")
+    conn = mysql.connector.connect(host=host, port=port, user=user, password=password)
+    cursor = conn.cursor()
+
+    with open("schema.sql", "r", encoding="utf-8") as f:
+        sql_script = f.read()
+
+    print("Executing database schema & seed data...")
+    for result in cursor.execute(sql_script, multi=True):
+        if result.with_rows:
+            result.fetchall()
+
+    conn.commit()
+    cursor.close()
+    conn.close()
+    print("\n[OK] Database 'streamflix' successfully created and seeded!")
+
+if __name__ == "__main__":
+    init_db()
+
+================================================================================
+END OF FILE
+================================================================================
